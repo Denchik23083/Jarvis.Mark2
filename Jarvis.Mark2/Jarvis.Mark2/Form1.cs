@@ -1,18 +1,31 @@
+using Jarvis.Mark2.Infrastructure;
+using System.Text.Json;
+
 namespace Jarvis.Mark2
 {
     public partial class Form1 : Form
     {
-        private FlowLayoutPanel chatPanel = null!;
+        private FlowLayoutPanel? chatPanel;
+        private readonly VoiceRecognitionService voiceRecognitionService = new();
+
+        private bool isActivated = false;
 
         public Form1()
         {
             InitializeComponent();
             AddPanel();
             SwitchToMainMode();
+            
+            voiceRecognitionService.TextRecognized += VoiceRecognitionService_TextRecognized;
+            voiceRecognitionService.ErrorOccurred += VoiceRecognitionService_ErrorOccurred;
+            
+            voiceRecognitionService.StartVoiceRecognition();
         }
 
         private void AddPanel()
         {
+            if (chatPanel is not null) return;
+
             chatPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -20,77 +33,24 @@ namespace Jarvis.Mark2
                 AutoScroll = true,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
-                Padding = new Padding(20),
+                Padding = new Padding(20, 20, 20, 120),
                 Visible = false,
                 Size = new Size(2500, 450)
             };
 
             Controls.Add(chatPanel);
-            chatPanel.SendToBack();
-
-            // Приветственные строки
-            AddLine("Jarvis: Система готова. Графический модуль отключен.");
-            AddLine("User: Принято.");
-
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: слушаю");
-
-            AddLine("Jarvis: система запущена");
-            AddLine("User: привет");
-            AddLine("Jarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущенаJarvis: система запущена");
-
+            chatPanel.BringToFront();
         }
 
         private void AddLine(string text)
         {
-            if (chatPanel == null) return;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => AddLine(text)));
+                return;
+            }
+
+            if (chatPanel is null) return;
 
             var lbl = new Label
             {
@@ -108,11 +68,88 @@ namespace Jarvis.Mark2
             chatPanel.ScrollControlIntoView(lbl);
         }
 
+        private void VoiceRecognitionService_TextRecognized(string text)
+        {
+            BeginInvoke(new Action(() =>
+            {
+                ProcessRecognizedText(text);
+            }));
+        }
+
+        private void VoiceRecognitionService_ErrorOccurred(string message)
+        {
+            BeginInvoke(new Action(() =>
+            {
+                AddLine("Jarvis: " + message);
+            }));
+        }
+
+        private void ProcessRecognizedText(string text)
+        {
+            text = text.Trim().ToLower();
+
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            AddLine("User: " + text);
+
+
+            if (!isActivated)
+            {
+                // Режим картинки: ждём только команду активации
+                if (text == "джарвис" || text == "привет" || text == "джарвис не спишь")
+                {
+                    isActivated = true;
+                    SwitchToChatMode();
+                    AddLine("Jarvis: Всегда к вашим услугам Сэр");
+                }
+
+                return;
+            }
+
+            // Режим чата
+            if (text.Contains("спать") || text.Contains("спящий режим"))
+            {
+                isActivated = false;
+                SwitchToMainMode();
+                AddLine("Jarvis: До свидания сэр");
+                return;
+            }
+
+            // Здесь потом будут обычные команды
+            if (text.Contains("привет"))
+            {
+                AddLine("Jarvis: Здравствуйте.");
+                return;
+            }
+        }
+
+        private void SwitchToMainMode()
+        {
+            pictureBox1.Visible = true;
+            
+            if (chatPanel is not null) chatPanel.Visible = false;
+
+            pictureBox1.BringToFront();
+        }
+
+        private void SwitchToChatMode()
+        {
+            pictureBox1.Visible = false;
+
+            if (chatPanel is not null)
+            {
+                chatPanel.Visible = true;
+            }
+
+            chatPanel?.BringToFront();
+        }
+
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
 
-            if (chatPanel == null) return;
+            if (chatPanel is null) return;
 
             foreach (Control control in chatPanel.Controls)
             {
@@ -123,36 +160,11 @@ namespace Jarvis.Mark2
             }
         }
 
-        private void button1_Click(object sender, EventArgs e)
+        protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            SwitchToChatMode();
-        }
+            voiceRecognitionService.OnFormClosing();
 
-        private void button2_Click(object sender, EventArgs e)
-        {
-            SwitchToMainMode();
-        }       
-
-        private void SwitchToMainMode()
-        {
-            pictureBox1.Visible = true;
-            chatPanel.Visible = false;
-
-            pictureBox1.SendToBack();
-
-            button1.BringToFront();
-            button2.BringToFront();
-        }
-
-        private void SwitchToChatMode()
-        {
-            pictureBox1.Visible = false;
-            chatPanel.Visible = true;
-
-            chatPanel.BringToFront();
-
-            button1.BringToFront();
-            button2.BringToFront();
+            base.OnFormClosing(e);
         }
     }
 }
