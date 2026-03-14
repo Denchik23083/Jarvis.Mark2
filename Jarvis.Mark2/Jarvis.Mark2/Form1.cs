@@ -1,16 +1,12 @@
-using NAudio.Wave;
+using Jarvis.Mark2.Infrastructure;
 using System.Text.Json;
-using Vosk;
 
 namespace Jarvis.Mark2
 {
     public partial class Form1 : Form
     {
         private FlowLayoutPanel? chatPanel;
-
-        private Model? voskModel;
-        private VoskRecognizer? recognizer;
-        private WaveInEvent? waveIn;
+        private readonly VoiceRecognitionService voiceRecognitionService = new();
 
         private bool isActivated = false;
 
@@ -19,7 +15,11 @@ namespace Jarvis.Mark2
             InitializeComponent();
             AddPanel();
             SwitchToMainMode();
-            StartVoiceRecognition();
+            
+            voiceRecognitionService.TextRecognized += VoiceRecognitionService_TextRecognized;
+            voiceRecognitionService.ErrorOccurred += VoiceRecognitionService_ErrorOccurred;
+            
+            voiceRecognitionService.StartVoiceRecognition();
         }
 
         private void AddPanel()
@@ -68,104 +68,20 @@ namespace Jarvis.Mark2
             chatPanel.ScrollControlIntoView(lbl);
         }
 
-        private void StartVoiceRecognition()
+        private void VoiceRecognitionService_TextRecognized(string text)
         {
-            try
+            BeginInvoke(new Action(() =>
             {
-                Vosk.Vosk.SetLogLevel(0);
-
-                var modelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "model-ru");
-
-                if (!Directory.Exists(modelPath))
-                {
-                    BeginInvoke(new Action(() =>
-                    {
-                        AddLine($"Папка модели не найдена: {modelPath}");
-                    }));
-
-                    return;
-                }
-
-                voskModel = new Model(modelPath);
-                recognizer = new VoskRecognizer(voskModel, 16000.0f);
-
-                waveIn = new WaveInEvent()
-                {
-                    DeviceNumber = 0,
-                    WaveFormat = new(16000, 1),
-                    BufferMilliseconds = 500
-                };
-
-                waveIn.DataAvailable += WaveIn_DataAvailable;
-                waveIn.RecordingStopped += WaveIn_RecordingStopped;
-
-                waveIn.StartRecording();
-
-                AddLine("Jarvis: Микрофон активирован.");
-            }
-            catch (Exception ex)
-            {
-                BeginInvoke(new Action(() =>
-                {
-                    AddLine("Ошибка запуска распознавания: " + ex.Message);
-                }));
-            }
+                ProcessRecognizedText(text);
+            }));
         }
 
-        private void WaveIn_DataAvailable(object? sender, WaveInEventArgs e)
+        private void VoiceRecognitionService_ErrorOccurred(string message)
         {
-            if (recognizer is null) return;
-
-            try
+            BeginInvoke(new Action(() =>
             {
-                var result = recognizer.AcceptWaveform(e.Buffer, e.BytesRecorded);
-
-                if (result)
-                {
-                    string json = recognizer.Result();
-                    string text = ExtractTextFromJson(json);
-
-                    if (!string.IsNullOrWhiteSpace(text))
-                    {
-                        BeginInvoke(new Action(() =>
-                        {
-                            ProcessRecognizedText(text);
-                        }));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                BeginInvoke(new Action(() =>
-                {
-                    AddLine("Ошибка распознавания: " + ex.Message);
-                }));
-            }
-        }
-
-        private void WaveIn_RecordingStopped(object? sender, StoppedEventArgs e)
-        {
-            if (e.Exception != null)
-            {
-                BeginInvoke(new Action(() =>
-                {
-                    AddLine("Ошибка микрофона: " + e.Exception.Message);
-                }));
-            }
-        }
-
-        private static string ExtractTextFromJson(string json)
-        {
-            try
-            {
-                using JsonDocument doc = JsonDocument.Parse(json);
-
-                if (doc.RootElement.TryGetProperty("text", out JsonElement textElement))
-                    return textElement.GetString() ?? string.Empty;
-            }
-            catch { }
-
-            return string.Empty;
+                AddLine("Jarvis: " + message);
+            }));
         }
 
         private void ProcessRecognizedText(string text)
@@ -181,7 +97,7 @@ namespace Jarvis.Mark2
             if (!isActivated)
             {
                 // Режим картинки: ждём только команду активации
-                if (text == "джарвис" || text.Contains("джарвис не спишь"))
+                if (text == "джарвис" || text == "привет" || text == "джарвис не спишь")
                 {
                     isActivated = true;
                     SwitchToChatMode();
@@ -246,10 +162,7 @@ namespace Jarvis.Mark2
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            waveIn?.StopRecording();
-            waveIn?.Dispose();
-            recognizer?.Dispose();
-            voskModel?.Dispose();
+            voiceRecognitionService.OnFormClosing();
 
             base.OnFormClosing(e);
         }
