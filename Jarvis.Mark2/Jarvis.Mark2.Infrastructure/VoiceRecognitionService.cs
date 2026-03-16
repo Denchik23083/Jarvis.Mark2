@@ -4,7 +4,7 @@ using Vosk;
 
 namespace Jarvis.Mark2.Infrastructure
 {
-    public class VoiceRecognitionService
+    public class VoiceRecognitionService : IDisposable
     {
         private Model? voskModel;
         private VoskRecognizer? recognizer;
@@ -12,6 +12,7 @@ namespace Jarvis.Mark2.Infrastructure
 
         public event Action<string>? TextRecognized;
         public event Action<string>? ErrorOccurred;
+        public event Action<string>? PartialTextRecognized;
 
         public void StartVoiceRecognition()
         {
@@ -35,7 +36,7 @@ namespace Jarvis.Mark2.Infrastructure
                 {
                     DeviceNumber = 0,
                     WaveFormat = new(16000, 1),
-                    BufferMilliseconds = 500
+                    BufferMilliseconds = 150
                 };
 
                 waveIn.DataAvailable += WaveIn_DataAvailable;
@@ -67,6 +68,16 @@ namespace Jarvis.Mark2.Infrastructure
                         TextRecognized?.Invoke(text);
                     }
                 }
+                else
+                {
+                    string json = recognizer.PartialResult();
+                    string text = ExtractPartialTextFromJson(json);
+
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        PartialTextRecognized?.Invoke(text);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -96,7 +107,21 @@ namespace Jarvis.Mark2.Infrastructure
             return string.Empty;
         }
 
-        public void OnFormClosing()
+        private string ExtractPartialTextFromJson(string json)
+        {
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(json);
+
+                if (doc.RootElement.TryGetProperty("partial", out JsonElement partialElement))
+                    return partialElement.GetString() ?? string.Empty;
+            }
+            catch { }
+
+            return string.Empty;
+        }
+
+        public void Dispose()
         {
             waveIn?.StopRecording();
             waveIn?.Dispose();

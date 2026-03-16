@@ -6,7 +6,9 @@ namespace Jarvis.Mark2
     public partial class Form1 : Form
     {
         private FlowLayoutPanel? chatPanel;
+        private Label? partialLabel;
         private readonly VoiceRecognitionService voiceRecognitionService = new();
+        private readonly CommandParser commandParser = new();
 
         private bool isActivated = false;
 
@@ -18,7 +20,13 @@ namespace Jarvis.Mark2
             
             voiceRecognitionService.TextRecognized += VoiceRecognitionService_TextRecognized;
             voiceRecognitionService.ErrorOccurred += VoiceRecognitionService_ErrorOccurred;
-            
+            voiceRecognitionService.PartialTextRecognized += OnPartialText;
+
+            Shown += Form1_Shown;
+        }
+
+        private void Form1_Shown(object? sender, EventArgs e)
+        {
             voiceRecognitionService.StartVoiceRecognition();
         }
 
@@ -70,6 +78,8 @@ namespace Jarvis.Mark2
 
         private void VoiceRecognitionService_TextRecognized(string text)
         {
+            //if (!IsHandleCreated) return;
+            
             BeginInvoke(new Action(() =>
             {
                 ProcessRecognizedText(text);
@@ -84,8 +94,43 @@ namespace Jarvis.Mark2
             }));
         }
 
+        private void OnPartialText(string text)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => OnPartialText(text)));
+                return;
+            }
+
+            if (chatPanel is null) return;
+
+            if (partialLabel is null)
+            {
+                partialLabel = new Label
+                {
+                    ForeColor = text.StartsWith("Jarvis") ? Color.Cyan : Color.White,
+                    Font = new Font("Consolas", 14, FontStyle.Bold),
+                    AutoSize = true,
+                    Margin = new Padding(0, 0, 0, 50),
+                    MaximumSize = new Size(chatPanel.ClientSize.Width - chatPanel.Padding.Left - chatPanel.Padding.Right - 20, 0)
+                };
+
+                chatPanel.Controls.Add(partialLabel);
+            }
+
+            partialLabel.Text = "User: " + text;
+            chatPanel.ScrollControlIntoView(partialLabel);
+        }
+
         private void ProcessRecognizedText(string text)
         {
+            if (partialLabel is not null)
+            {
+                chatPanel?.Controls.Remove(partialLabel);
+                partialLabel.Dispose();
+                partialLabel = null;
+            }
+
             text = text.Trim().ToLower();
 
             if (string.IsNullOrWhiteSpace(text))
@@ -93,34 +138,61 @@ namespace Jarvis.Mark2
 
             AddLine("User: " + text);
 
+            var result = commandParser.Parse(text, isActivated);
 
-            if (!isActivated)
+            switch (result.CommandType)
             {
-                // Режим картинки: ждём только команду активации
-                if (text == "джарвис" || text == "привет" || text == "джарвис не спишь")
-                {
+                case CommandType.Wake:
                     isActivated = true;
                     SwitchToChatMode();
                     AddLine("Jarvis: Всегда к вашим услугам Сэр");
-                }
+                    break;
 
-                return;
+                case CommandType.Sleep:
+                    isActivated = false;
+                    AddLine("Jarvis: До свидания сэр");
+                    SwitchToMainMode();
+                    break;
+
+                case CommandType.System:
+                    ExecuteSystemCommand(result.SystemCommandType);
+                    break;
+
+                case CommandType.AiQuery:
+                    //Ai
+                    break;
+
+                case CommandType.None:
+                default:
+                    AddLine("Jarvis: Повторите пожалуйста.");
+                    break;
             }
+        }
 
-            // Режим чата
-            if (text.Contains("спать") || text.Contains("спящий режим"))
+        private void ExecuteSystemCommand(SystemCommandType systemCommandType)
+        {
+            switch (systemCommandType)
             {
-                isActivated = false;
-                SwitchToMainMode();
-                AddLine("Jarvis: До свидания сэр");
-                return;
-            }
+                case SystemCommandType.OpenGoogle:
+                    AddLine("Jarvis: Открываю Google.");
+                    break;
 
-            // Здесь потом будут обычные команды
-            if (text.Contains("привет"))
-            {
-                AddLine("Jarvis: Здравствуйте.");
-                return;
+                case SystemCommandType.OpenYouTube:
+                    AddLine("Jarvis: Открываю YouTube.");
+                    break;
+
+                case SystemCommandType.Mute:
+                    AddLine("Jarvis: Перехожу в тихий режим.");
+                    break;
+
+                case SystemCommandType.UnMute:
+                    AddLine("Jarvis: Звук возвращён.");
+                    break;
+
+
+                case SystemCommandType.None:
+                default:
+                    break;
             }
         }
 
@@ -162,7 +234,7 @@ namespace Jarvis.Mark2
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            voiceRecognitionService.OnFormClosing();
+            voiceRecognitionService.Dispose();
 
             base.OnFormClosing(e);
         }
