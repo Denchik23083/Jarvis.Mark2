@@ -1,4 +1,4 @@
-﻿namespace Jarvis.Mark2.Infrastructure
+﻿namespace Jarvis.Mark2.Infrastructure.Core
 {
     public class CommandParseResult
     {

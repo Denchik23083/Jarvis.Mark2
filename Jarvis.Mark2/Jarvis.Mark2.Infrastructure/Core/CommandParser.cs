@@ -1,13 +1,15 @@
-﻿namespace Jarvis.Mark2.Infrastructure
+﻿
+namespace Jarvis.Mark2.Infrastructure.Core
 {
     public class CommandParser
     {
-        private readonly HashSet<string> listWakeUp = ["привет", "джарвис","жарвис","дарвис", "джервис", "джарвис не спишь","привет джарвис"];
+        private readonly HashSet<string> listWakeUp = ["при", "привет", "джейв", "джарвис","жарвис","дарвис", "джервис", "джарвис не спишь","привет джарвис"];
         private readonly HashSet<string> listSleep = ["пока", "джарвис спать","спать","спящий режим"];
         private readonly string muteCommand = "без звука";
         private readonly string unMuteCommand = "верни звук";
         private readonly HashSet<string> listGoogle = ["открой гугл", "гугл"];
         private readonly HashSet<string> listYouTube = ["открой ютуб", "ютуб"];
+        private readonly string[] jarvisAliases = ["джейв", "джарвис", "жарвис", "джервис", "дарвис"];
 
         public CommandParseResult Parse(string text, bool isActivated)
         {
@@ -49,7 +51,6 @@
                 };
             }
 
-            //AllCommand
             var systemCommand = GetSystemCommand(text);
             if (systemCommand != SystemCommandType.None)
             {
@@ -83,7 +84,28 @@
             return listSleep.Any(text.Contains);
         }
 
-        //AllCommand
+        public string CleanAiText(string text)
+        {
+            text = Normalize(text);
+
+            foreach (var alias in jarvisAliases)
+            {
+                if (text.StartsWith(alias + " "))
+                {
+                    text = text[(alias.Length + 1)..];
+                    break;
+                }
+
+                if (text == alias)
+                {
+                    return string.Empty;
+                }
+            }
+
+            return text.Trim();
+        }
+
+        //AllSystemCommand
         private SystemCommandType GetSystemCommand(string text)
         {
             if (muteCommand.Equals(text))

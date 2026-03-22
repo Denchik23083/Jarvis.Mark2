@@ -2,7 +2,7 @@
 using System.Text.Json;
 using Vosk;
 
-namespace Jarvis.Mark2.Infrastructure
+namespace Jarvis.Mark2.Infrastructure.Services
 {
     public class VoiceRecognitionService : IDisposable
     {
@@ -107,7 +107,7 @@ namespace Jarvis.Mark2.Infrastructure
             return string.Empty;
         }
 
-        private string ExtractPartialTextFromJson(string json)
+        private static string ExtractPartialTextFromJson(string json)
         {
             try
             {
@@ -127,6 +127,8 @@ namespace Jarvis.Mark2.Infrastructure
             waveIn?.Dispose();
             recognizer?.Dispose();
             voskModel?.Dispose();
+
+            GC.SuppressFinalize(this);
         }
     }
 }

@@ -1,5 +1,7 @@
-using Jarvis.Mark2.Infrastructure;
+using Jarvis.Mark2.Infrastructure.Core;
+using Jarvis.Mark2.Infrastructure.Services;
 using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace Jarvis.Mark2
 {
@@ -9,15 +11,20 @@ namespace Jarvis.Mark2
         private Label? partialLabel;
         private readonly VoiceRecognitionService voiceRecognitionService = new();
         private readonly CommandParser commandParser = new();
+        private readonly GeminiService geminiService;
 
         private bool isActivated = false;
+        private bool isAiBusy = false;
 
         public Form1()
         {
             InitializeComponent();
             AddPanel();
             SwitchToMainMode();
-            
+
+            var apiKey = "AIzaSyDt8adafgcj40uJ7qj29XkguweCEl_TMwk";
+            geminiService = new GeminiService(apiKey);
+
             voiceRecognitionService.TextRecognized += VoiceRecognitionService_TextRecognized;
             voiceRecognitionService.ErrorOccurred += VoiceRecognitionService_ErrorOccurred;
             voiceRecognitionService.PartialTextRecognized += OnPartialText;
@@ -77,12 +84,10 @@ namespace Jarvis.Mark2
         }
 
         private void VoiceRecognitionService_TextRecognized(string text)
-        {
-            //if (!IsHandleCreated) return;
-            
+        {            
             BeginInvoke(new Action(() =>
             {
-                ProcessRecognizedText(text);
+                _ = ProcessRecognizedTextAsync(text);
             }));
         }
 
@@ -122,7 +127,7 @@ namespace Jarvis.Mark2
             chatPanel.ScrollControlIntoView(partialLabel);
         }
 
-        private void ProcessRecognizedText(string text)
+        private async Task ProcessRecognizedTextAsync(string text)
         {
             if (partialLabel is not null)
             {
@@ -159,7 +164,7 @@ namespace Jarvis.Mark2
                     break;
 
                 case CommandType.AiQuery:
-                    //Ai
+                    await HandleAiQueryAsync(text);
                     break;
 
                 case CommandType.None:
@@ -194,6 +199,59 @@ namespace Jarvis.Mark2
                 default:
                     break;
             }
+        }
+
+        private async Task HandleAiQueryAsync(string text)
+        {
+            if (!ShouldSendToAi(text))
+            {
+                AddLine("повторите пожалуйста");
+                return;
+            }
+
+            if (isAiBusy)
+            {
+                AddLine("подождите пожалуйста");
+                return;
+            }
+
+            try
+            {
+                isAiBusy = true;
+                string cleanedText = commandParser.CleanAiText(text);
+                string answer = await geminiService.AskAsync(cleanedText);
+
+                AddLine("Jarvis: " + answer);
+            }
+            catch (Exception e)
+            {
+                AddLine("Jarvis: Ошибка." + e.Message);
+            }
+            finally
+            {
+                isAiBusy = false;
+            }
+        }
+
+        private static bool ShouldSendToAi(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            text = text.Trim().ToLower();
+
+            if (text.Length < 3)
+                return false;
+
+            string[] ignored =
+            [
+                "ага", "да", "нет", "ну", "эм", "мм", "а", "и", "чё", "че"
+            ];
+
+            if (ignored.Contains(text))
+                return false;
+
+            return true;
         }
 
         private void SwitchToMainMode()
