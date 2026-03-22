@@ -10,70 +10,128 @@ namespace Jarvis.Mark2.Infrastructure.Services
         private VoskRecognizer? recognizer;
         private WaveInEvent? waveIn;
 
+        private readonly object _sync = new();
+        private volatile bool _isRecognitionEnabled;
+        private volatile bool _isDisposed;
+
         public event Action<string>? TextRecognized;
         public event Action<string>? ErrorOccurred;
         public event Action<string>? PartialTextRecognized;
 
+        public bool IsListening => waveIn != null && _isRecognitionEnabled;
+
         public void StartVoiceRecognition()
         {
-            try
+            lock (_sync)
             {
-                Vosk.Vosk.SetLogLevel(0);
+                if (_isDisposed) return;
 
-                var modelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "model-ru");
-
-                if (!Directory.Exists(modelPath))
+                try
                 {
-                    ErrorOccurred?.Invoke($"Папка модели не найдена: {modelPath}");
+                    if (waveIn != null)
+                    {
+                        _isRecognitionEnabled = true;
+                        return;
+                    }
 
-                    return;
+                    Vosk.Vosk.SetLogLevel(0);
+
+                    if (voskModel == null)
+                    {
+                        var modelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "model-ru");
+
+                        if (!Directory.Exists(modelPath))
+                        {
+                            ErrorOccurred?.Invoke($"Папка модели не найдена: {modelPath}");
+                            return;
+                        }
+
+                        voskModel = new Model(modelPath);
+                    }
+
+                    recognizer?.Dispose();
+                    recognizer = new VoskRecognizer(voskModel, 16000.0f);
+
+                    waveIn = new WaveInEvent
+                    {
+                        DeviceNumber = 0,
+                        WaveFormat = new WaveFormat(16000, 1),
+                        BufferMilliseconds = 150
+                    };
+
+                    waveIn.DataAvailable += WaveIn_DataAvailable;
+                    waveIn.RecordingStopped += WaveIn_RecordingStopped;
+
+                    _isRecognitionEnabled = true;
+                    waveIn.StartRecording();
                 }
-
-                voskModel = new Model(modelPath);
-                recognizer = new VoskRecognizer(voskModel, 16000.0f);
-
-                waveIn = new WaveInEvent()
+                catch (Exception ex)
                 {
-                    DeviceNumber = 0,
-                    WaveFormat = new(16000, 1),
-                    BufferMilliseconds = 150
-                };
-
-                waveIn.DataAvailable += WaveIn_DataAvailable;
-                waveIn.RecordingStopped += WaveIn_RecordingStopped;
-
-                waveIn.StartRecording();
+                    ErrorOccurred?.Invoke("Ошибка запуска распознавания: " + ex.Message);
+                }
             }
-            catch (Exception ex)
+        }
+
+        public void StopVoiceRecognition()
+        {
+            lock (_sync)
             {
-                ErrorOccurred?.Invoke("Ошибка запуска распознавания: " + ex.Message);
+                try
+                {
+                    _isRecognitionEnabled = false;
+
+                    if (waveIn != null)
+                    {
+                        waveIn.DataAvailable -= WaveIn_DataAvailable;
+                        waveIn.RecordingStopped -= WaveIn_RecordingStopped;
+
+                        waveIn.StopRecording();
+                        waveIn.Dispose();
+                        waveIn = null;
+                    }
+
+                    recognizer?.Dispose();
+                    recognizer = null;
+                }
+                catch (Exception ex)
+                {
+                    ErrorOccurred?.Invoke("Ошибка остановки микрофона: " + ex.Message);
+                }
             }
         }
 
         private void WaveIn_DataAvailable(object? sender, WaveInEventArgs e)
         {
-            if (recognizer is null) return;
+            if (!_isRecognitionEnabled)
+                return;
+
+            var localRecognizer = recognizer;
+            if (localRecognizer is null)
+                return;
 
             try
             {
-                var result = recognizer.AcceptWaveform(e.Buffer, e.BytesRecorded);
+                var result = localRecognizer.AcceptWaveform(e.Buffer, e.BytesRecorded);
+
+                if (!_isRecognitionEnabled)
+                    return;
 
                 if (result)
                 {
-                    string json = recognizer.Result();
+                    string json = localRecognizer.Result();
                     string text = ExtractTextFromJson(json);
 
-                    if (!string.IsNullOrWhiteSpace(text))
+                    if (_isRecognitionEnabled && !string.IsNullOrWhiteSpace(text))
                     {
                         TextRecognized?.Invoke(text);
                     }
                 }
                 else
                 {
-                    string json = recognizer.PartialResult();
+                    string json = localRecognizer.PartialResult();
                     string text = ExtractPartialTextFromJson(json);
 
-                    if (!string.IsNullOrWhiteSpace(text))
+                    if (_isRecognitionEnabled && !string.IsNullOrWhiteSpace(text))
                     {
                         PartialTextRecognized?.Invoke(text);
                     }
@@ -81,12 +139,18 @@ namespace Jarvis.Mark2.Infrastructure.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke("Ошибка распознавания: " + ex.Message);
+                if (_isRecognitionEnabled)
+                {
+                    ErrorOccurred?.Invoke("Ошибка распознавания: " + ex.Message);
+                }
             }
         }
 
         private void WaveIn_RecordingStopped(object? sender, StoppedEventArgs e)
         {
+            if (!_isRecognitionEnabled)
+                return;
+
             if (e.Exception != null)
             {
                 ErrorOccurred?.Invoke("Ошибка микрофона: " + e.Exception.Message);
@@ -102,7 +166,9 @@ namespace Jarvis.Mark2.Infrastructure.Services
                 if (doc.RootElement.TryGetProperty("text", out JsonElement textElement))
                     return textElement.GetString() ?? string.Empty;
             }
-            catch { }
+            catch
+            {
+            }
 
             return string.Empty;
         }
@@ -116,17 +182,38 @@ namespace Jarvis.Mark2.Infrastructure.Services
                 if (doc.RootElement.TryGetProperty("partial", out JsonElement partialElement))
                     return partialElement.GetString() ?? string.Empty;
             }
-            catch { }
+            catch
+            {
+            }
 
             return string.Empty;
         }
 
         public void Dispose()
         {
-            waveIn?.StopRecording();
-            waveIn?.Dispose();
-            recognizer?.Dispose();
-            voskModel?.Dispose();
+            lock (_sync)
+            {
+                if (_isDisposed)
+                    return;
+
+                _isDisposed = true;
+                _isRecognitionEnabled = false;
+
+                if (waveIn != null)
+                {
+                    waveIn.DataAvailable -= WaveIn_DataAvailable;
+                    waveIn.RecordingStopped -= WaveIn_RecordingStopped;
+                    waveIn.StopRecording();
+                    waveIn.Dispose();
+                    waveIn = null;
+                }
+
+                recognizer?.Dispose();
+                recognizer = null;
+
+                voskModel?.Dispose();
+                voskModel = null;
+            }
 
             GC.SuppressFinalize(this);
         }

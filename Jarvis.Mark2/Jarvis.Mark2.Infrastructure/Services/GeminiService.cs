@@ -1,6 +1,5 @@
 ﻿using Google.GenAI;
 using Google.GenAI.Types;
-using System.Threading.Tasks;
 
 namespace Jarvis.Mark2.Infrastructure.Services
 {

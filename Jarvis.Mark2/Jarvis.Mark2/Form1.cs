@@ -1,7 +1,6 @@
 using Jarvis.Mark2.Infrastructure.Core;
 using Jarvis.Mark2.Infrastructure.Services;
-using System.Text.Json;
-using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace Jarvis.Mark2
 {
@@ -9,8 +8,10 @@ namespace Jarvis.Mark2
     {
         private FlowLayoutPanel? chatPanel;
         private Label? partialLabel;
+        private Label? jarvisPartialLabel;
         private readonly VoiceRecognitionService voiceRecognitionService = new();
         private readonly CommandParser commandParser = new();
+        private readonly TtsService Jarvis = new();
         private readonly GeminiService geminiService;
 
         private bool isActivated = false;
@@ -22,7 +23,7 @@ namespace Jarvis.Mark2
             AddPanel();
             SwitchToMainMode();
 
-            var apiKey = "AIzaSyDt8adafgcj40uJ7qj29XkguweCEl_TMwk";
+            string apiKey = GetApiKey();
             geminiService = new GeminiService(apiKey);
 
             voiceRecognitionService.TextRecognized += VoiceRecognitionService_TextRecognized;
@@ -32,9 +33,35 @@ namespace Jarvis.Mark2
             Shown += Form1_Shown;
         }
 
+        private static string GetApiKey()
+        {
+            var config = new ConfigurationBuilder()
+                .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .Build();
+
+            return config["Gemini:ApiKey"] ?? throw new Exception("API key не найден");
+        }
+
         private void Form1_Shown(object? sender, EventArgs e)
         {
             voiceRecognitionService.StartVoiceRecognition();
+        }
+
+        private async Task SpeakWithPauseAsync(string text)
+        {
+            try
+            {
+                voiceRecognitionService.StopVoiceRecognition();
+
+                await Jarvis.SpeakAsync(text);
+
+                await Task.Delay(500);
+            }
+            finally
+            {
+                voiceRecognitionService.StartVoiceRecognition();
+            }
         }
 
         private void AddPanel()
@@ -78,8 +105,6 @@ namespace Jarvis.Mark2
             };
 
             chatPanel.Controls.Add(lbl);
-
-            // Исправленный скролл вниз
             chatPanel.ScrollControlIntoView(lbl);
         }
 
@@ -93,10 +118,7 @@ namespace Jarvis.Mark2
 
         private void VoiceRecognitionService_ErrorOccurred(string message)
         {
-            BeginInvoke(new Action(() =>
-            {
-                AddLine("Jarvis: " + message);
-            }));
+            BeginInvoke(new Action(() => AddLine("Jarvis: " + message)));
         }
 
         private void OnPartialText(string text)
@@ -127,6 +149,65 @@ namespace Jarvis.Mark2
             chatPanel.ScrollControlIntoView(partialLabel);
         }
 
+        private async Task ShowJarvisSpeechAsync(string text)
+        {
+            if (InvokeRequired)
+            {
+                await Invoke(new Func<Task>(() => ShowJarvisSpeechAsync(text)));
+                return;
+            }
+
+            if (chatPanel is null || string.IsNullOrWhiteSpace(text))
+                return;
+
+            if (jarvisPartialLabel is not null)
+            {
+                chatPanel.Controls.Remove(jarvisPartialLabel);
+                jarvisPartialLabel.Dispose();
+                jarvisPartialLabel = null;
+            }
+
+            jarvisPartialLabel = new Label
+            {
+                ForeColor = Color.Cyan,
+                Font = new Font("Consolas", 14, FontStyle.Bold),
+                AutoSize = true,
+                Margin = new Padding(0, 0, 0, 50),
+                MaximumSize = new Size(chatPanel.ClientSize.Width - chatPanel.Padding.Left - chatPanel.Padding.Right - 20, 0)
+            };
+
+            chatPanel.Controls.Add(jarvisPartialLabel);
+            chatPanel.ScrollControlIntoView(jarvisPartialLabel);
+
+            var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            string current = "Jarvis: ";
+
+            foreach (var word in words)
+            {
+                current += word + " ";
+                jarvisPartialLabel.Text = current.TrimEnd();
+                chatPanel.ScrollControlIntoView(jarvisPartialLabel);
+
+                await Task.Delay(120);
+            }
+
+            var finalText = jarvisPartialLabel.Text;
+
+            chatPanel.Controls.Remove(jarvisPartialLabel);
+            jarvisPartialLabel.Dispose();
+            jarvisPartialLabel = null;
+
+            AddLine(finalText);
+        }
+
+        private async Task SpeakAndShowAsync(string visibleText, string speechText)
+        {
+            var speakTask = SpeakWithPauseAsync(speechText);
+            var showTask = ShowJarvisSpeechAsync(visibleText);
+
+            await Task.WhenAll(speakTask, showTask);
+        }
+
         private async Task ProcessRecognizedTextAsync(string text)
         {
             if (partialLabel is not null)
@@ -150,17 +231,21 @@ namespace Jarvis.Mark2
                 case CommandType.Wake:
                     isActivated = true;
                     SwitchToChatMode();
-                    AddLine("Jarvis: Всегда к вашим услугам Сэр");
+                    await SpeakAndShowAsync(
+                        "Всегда к вашим услугам cэр",
+                        "Всегда к вашим услугам сcэр");
                     break;
 
                 case CommandType.Sleep:
                     isActivated = false;
-                    AddLine("Jarvis: До свидания сэр");
+                    await SpeakAndShowAsync(
+                        "До свидания сэр",
+                        "До свидания ссэр");
                     SwitchToMainMode();
                     break;
 
                 case CommandType.System:
-                    ExecuteSystemCommand(result.SystemCommandType);
+                    await ExecuteSystemCommandAsync(result.SystemCommandType);
                     break;
 
                 case CommandType.AiQuery:
@@ -169,31 +254,41 @@ namespace Jarvis.Mark2
 
                 case CommandType.None:
                 default:
-                    AddLine("Jarvis: Повторите пожалуйста.");
+                    await SpeakAndShowAsync(
+                        "Повторите пожалуйста.",
+                        "Повторите пожалуйста");
                     break;
             }
         }
 
-        private void ExecuteSystemCommand(SystemCommandType systemCommandType)
+        private async Task ExecuteSystemCommandAsync(SystemCommandType systemCommandType)
         {
             switch (systemCommandType)
             {
                 case SystemCommandType.OpenGoogle:
-                    AddLine("Jarvis: Открываю Google.");
+                    //создать список с согласием и рандомно делать
+                    await SpeakAndShowAsync(
+                        "Открываю Google.",
+                        "Открываю Google");
                     break;
 
                 case SystemCommandType.OpenYouTube:
-                    AddLine("Jarvis: Открываю YouTube.");
+                    await SpeakAndShowAsync(
+                        "Открываю YouTube.",
+                        "Открываю YouTube");
                     break;
 
                 case SystemCommandType.Mute:
-                    AddLine("Jarvis: Перехожу в тихий режим.");
+                    await SpeakAndShowAsync(
+                        "Перехожу в тихий режим.",
+                        "Перехожу в тихий режим");
                     break;
 
                 case SystemCommandType.UnMute:
-                    AddLine("Jarvis: Звук возвращён.");
+                    await SpeakAndShowAsync(
+                        "Звук возвращён.",
+                        "Звук возвращён");
                     break;
-
 
                 case SystemCommandType.None:
                 default:
@@ -205,13 +300,17 @@ namespace Jarvis.Mark2
         {
             if (!ShouldSendToAi(text))
             {
-                AddLine("повторите пожалуйста");
+                await SpeakAndShowAsync(
+                        "Повторите пожалуйста.",
+                        "Повторите пожалуйста");
                 return;
             }
 
             if (isAiBusy)
             {
-                AddLine("подождите пожалуйста");
+                await SpeakAndShowAsync(
+                        "Подождите пожалуйста.",
+                        "Подождите пожалуйста");
                 return;
             }
 
@@ -221,7 +320,9 @@ namespace Jarvis.Mark2
                 string cleanedText = commandParser.CleanAiText(text);
                 string answer = await geminiService.AskAsync(cleanedText);
 
-                AddLine("Jarvis: " + answer);
+                await SpeakAndShowAsync(answer, answer);
+
+                return;
             }
             catch (Exception e)
             {
@@ -293,7 +394,7 @@ namespace Jarvis.Mark2
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             voiceRecognitionService.Dispose();
-
+            Jarvis.Dispose();
             base.OnFormClosing(e);
         }
     }
