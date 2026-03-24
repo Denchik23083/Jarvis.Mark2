@@ -1,6 +1,9 @@
 using Jarvis.Mark2.Infrastructure.Core;
 using Jarvis.Mark2.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
+using System;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace Jarvis.Mark2
 {
@@ -14,8 +17,12 @@ namespace Jarvis.Mark2
         private readonly TtsService Jarvis = new();
         private readonly GeminiService geminiService;
 
+        private readonly HashSet<string> listAgree = ["да сэр", "слушаюсь сэр", "приступаю сэр", "выполняю сэр", "как пожелаете сэр"];
+        private readonly Random random = new();
+
         private bool isActivated = false;
         private bool isAiBusy = false;
+        private bool isMuted = false;
 
         public Form1()
         {
@@ -48,68 +55,8 @@ namespace Jarvis.Mark2
             voiceRecognitionService.StartVoiceRecognition();
         }
 
-        private async Task SpeakWithPauseAsync(string text)
-        {
-            try
-            {
-                voiceRecognitionService.StopVoiceRecognition();
-
-                await Jarvis.SpeakAsync(text);
-
-                await Task.Delay(500);
-            }
-            finally
-            {
-                voiceRecognitionService.StartVoiceRecognition();
-            }
-        }
-
-        private void AddPanel()
-        {
-            if (chatPanel is not null) return;
-
-            chatPanel = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.Black,
-                AutoScroll = true,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                Padding = new Padding(20, 20, 20, 120),
-                Visible = false,
-                Size = new Size(2500, 450)
-            };
-
-            Controls.Add(chatPanel);
-            chatPanel.BringToFront();
-        }
-
-        private void AddLine(string text)
-        {
-            if (InvokeRequired)
-            {
-                BeginInvoke(new Action(() => AddLine(text)));
-                return;
-            }
-
-            if (chatPanel is null) return;
-
-            var lbl = new Label
-            {
-                Text = text,
-                ForeColor = text.StartsWith("Jarvis") ? Color.Cyan : Color.White,
-                Font = new Font("Consolas", 14, FontStyle.Bold),
-                AutoSize = true,
-                Margin = new Padding(0, 0, 0, 50),
-                MaximumSize = new Size(chatPanel.ClientSize.Width - chatPanel.Padding.Left - chatPanel.Padding.Right - 20, 0)
-            };
-
-            chatPanel.Controls.Add(lbl);
-            chatPanel.ScrollControlIntoView(lbl);
-        }
-
         private void VoiceRecognitionService_TextRecognized(string text)
-        {            
+        {
             BeginInvoke(new Action(() =>
             {
                 _ = ProcessRecognizedTextAsync(text);
@@ -147,6 +94,217 @@ namespace Jarvis.Mark2
 
             partialLabel.Text = "User: " + text;
             chatPanel.ScrollControlIntoView(partialLabel);
+        }
+
+        private async Task ProcessRecognizedTextAsync(string text)
+        {
+            if (partialLabel is not null)
+            {
+                chatPanel?.Controls.Remove(partialLabel);
+                partialLabel.Dispose();
+                partialLabel = null;
+            }
+
+            text = text.Trim().ToLower();
+
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            AddLine("User: " + text);
+
+            var result = commandParser.Parse(text, isActivated);
+
+            switch (result.CommandType)
+            {
+                case CommandType.Wake:
+                    isActivated = true;
+                    SwitchToChatMode();
+                    await SpeakAndShowAsync("Всегда к вашим услугам сэр");
+                    break;
+
+                case CommandType.Sleep:
+                    isActivated = false;
+                    await SpeakAndShowAsync("До свидания сэр");
+                    SwitchToMainMode();
+                    break;
+
+                case CommandType.System:
+                    await ExecuteSystemCommandAsync(result.SystemCommandType);
+                    break;
+
+                case CommandType.AiQuery:
+                    await HandleAiQueryAsync(text);
+                    break;
+
+                case CommandType.None:
+                default:
+                    await SpeakAndShowAsync("Повторите пожалуйста");
+                    break;
+            }
+        }
+
+        private async Task ExecuteSystemCommandAsync(SystemCommandType systemCommandType)
+        {
+            var randomAgree = listAgree.ElementAt(random.Next(listAgree.Count));
+
+            switch (systemCommandType)
+            {
+                case SystemCommandType.OpenGoogle:
+                    await SpeakAndShowAsync(randomAgree);
+                    OpenUrl("https://google.com");
+                    break;
+
+                case SystemCommandType.OpenYouTube:
+                    await SpeakAndShowAsync(randomAgree);
+                    OpenUrl("https://www.youtube.com");
+                    break;
+
+                case SystemCommandType.OpenSteam:
+                    await SpeakAndShowAsync(randomAgree);
+                    OpenUrl(@"C:\Program Files (x86)\Steam\steam.exe");
+                    break;
+
+                case SystemCommandType.OpenWot:
+                    await SpeakAndShowAsync(randomAgree);
+                    OpenUrl(@"C:\ProgramData\Wargaming.net\GameCenter\wgc.exe");
+                    break;
+                
+                case SystemCommandType.Clear:
+                    await SpeakAndShowAsync(randomAgree);
+                    chatPanel?.Controls.Clear();
+                    break;
+
+                case SystemCommandType.Mute:
+                    MuteJarvis();
+                    break;
+
+                case SystemCommandType.UnMute:
+                    UnMuteJarvis();
+                    await SpeakAndShowAsync("звук возвращен");
+                    break;
+
+                case SystemCommandType.None:
+                default:
+                    break;
+            }
+        }
+
+        private void OpenUrl(string url)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+
+        private async Task HandleAiQueryAsync(string text)
+        {
+            if (!ShouldSendToAi(text))
+            {
+                await SpeakAndShowAsync("Повторите пожалуйста");
+                return;
+            }
+
+            if (isAiBusy)
+            {
+                await SpeakAndShowAsync("Подождите пожалуйста");
+                return;
+            }
+
+            try
+            {
+                isAiBusy = true;
+                string cleanedText = commandParser.CleanAiText(text);
+                string answer = await geminiService.AskAsync(cleanedText);
+
+                await SpeakAndShowAsync(answer);
+
+                return;
+            }
+            catch (Exception e)
+            {
+                string userMessage;
+
+                if (e.Message.Contains("quota") || e.Message.Contains("limit"))
+                {
+                    userMessage = "Я исчерпал лимит запросов. Попробуйте позже.";
+                }
+                else
+                {
+                    userMessage = "Произошла ошибка при обращении к серверу.";
+                }
+
+                await SpeakAndShowAsync(userMessage);
+            }
+            finally
+            {
+                isAiBusy = false;
+            }
+        }
+
+        private static bool ShouldSendToAi(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            text = text.Trim().ToLower();
+
+            if (text.Length < 3)
+                return false;
+
+            string[] ignored =
+            [
+                "ага", "да", "нет", "ну", "эм", "мм", "а", "и", "чё", "че"
+            ];
+
+            if (ignored.Contains(text))
+                return false;
+
+            return true;
+        }
+
+        private async Task SpeakAndShowAsync(string text)
+        {
+            if (isMuted)
+            {
+                AddLine("Jarvis: " + text);
+                return;
+            }
+
+            var speechText = NorilizedText(text);
+
+            var speakTask = SpeakWithPauseAsync(speechText);
+            var showTask = ShowJarvisSpeechAsync(text);
+
+            await Task.WhenAll(speakTask, showTask);
+        }
+
+        private void MuteJarvis()
+        {
+            isMuted = true;
+            Jarvis.Stop();
+        }
+
+        private void UnMuteJarvis()
+        {
+            isMuted = false;
+        }
+
+        private async Task SpeakWithPauseAsync(string text)
+        {
+            try
+            {
+                voiceRecognitionService.StopVoiceRecognition();
+
+                await Jarvis.SpeakAsync(text);
+
+                await Task.Delay(500);
+            }
+            finally
+            {
+                voiceRecognitionService.StartVoiceRecognition();
+            }
         }
 
         private async Task ShowJarvisSpeechAsync(string text)
@@ -200,170 +358,57 @@ namespace Jarvis.Mark2
             AddLine(finalText);
         }
 
-        private async Task SpeakAndShowAsync(string visibleText, string speechText)
+        private static string NorilizedText(string text)
         {
-            var speakTask = SpeakWithPauseAsync(speechText);
-            var showTask = ShowJarvisSpeechAsync(visibleText);
-
-            await Task.WhenAll(speakTask, showTask);
+            return Regex.Replace(
+                text,
+                @"\bсэр\b",
+                "ссэр",
+                RegexOptions.IgnoreCase);
         }
 
-        private async Task ProcessRecognizedTextAsync(string text)
+        private void AddPanel()
         {
-            if (partialLabel is not null)
+            if (chatPanel is not null) return;
+
+            chatPanel = new FlowLayoutPanel
             {
-                chatPanel?.Controls.Remove(partialLabel);
-                partialLabel.Dispose();
-                partialLabel = null;
-            }
+                Dock = DockStyle.Fill,
+                BackColor = Color.Black,
+                AutoScroll = true,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                Padding = new Padding(20, 20, 20, 120),
+                Visible = false,
+                Size = new Size(2500, 450)
+            };
 
-            text = text.Trim().ToLower();
-
-            if (string.IsNullOrWhiteSpace(text))
-                return;
-
-            AddLine("User: " + text);
-
-            var result = commandParser.Parse(text, isActivated);
-
-            switch (result.CommandType)
-            {
-                case CommandType.Wake:
-                    isActivated = true;
-                    SwitchToChatMode();
-                    await SpeakAndShowAsync(
-                        "Всегда к вашим услугам cэр",
-                        "Всегда к вашим услугам сcэр");
-                    break;
-
-                case CommandType.Sleep:
-                    isActivated = false;
-                    await SpeakAndShowAsync(
-                        "До свидания сэр",
-                        "До свидания ссэр");
-                    SwitchToMainMode();
-                    break;
-
-                case CommandType.System:
-                    await ExecuteSystemCommandAsync(result.SystemCommandType);
-                    break;
-
-                case CommandType.AiQuery:
-                    await HandleAiQueryAsync(text);
-                    break;
-
-                case CommandType.None:
-                default:
-                    await SpeakAndShowAsync(
-                        "Повторите пожалуйста.",
-                        "Повторите пожалуйста");
-                    break;
-            }
+            Controls.Add(chatPanel);
+            chatPanel.BringToFront();
         }
 
-        private async Task ExecuteSystemCommandAsync(SystemCommandType systemCommandType)
+        private void AddLine(string text)
         {
-            switch (systemCommandType)
+            if (InvokeRequired)
             {
-                case SystemCommandType.OpenGoogle:
-                    //создать список с согласием и рандомно делать
-                    await SpeakAndShowAsync(
-                        "Открываю Google.",
-                        "Открываю Google");
-                    break;
-
-                case SystemCommandType.OpenYouTube:
-                    await SpeakAndShowAsync(
-                        "Открываю YouTube.",
-                        "Открываю YouTube");
-                    break;
-
-                case SystemCommandType.Mute:
-                    await SpeakAndShowAsync(
-                        "Перехожу в тихий режим.",
-                        "Перехожу в тихий режим");
-                    break;
-
-                case SystemCommandType.UnMute:
-                    await SpeakAndShowAsync(
-                        "Звук возвращён.",
-                        "Звук возвращён");
-                    break;
-
-                case SystemCommandType.None:
-                default:
-                    break;
-            }
-        }
-
-        private async Task HandleAiQueryAsync(string text)
-        {
-            if (!ShouldSendToAi(text))
-            {
-                await SpeakAndShowAsync(
-                        "Повторите пожалуйста.",
-                        "Повторите пожалуйста");
+                BeginInvoke(new Action(() => AddLine(text)));
                 return;
             }
 
-            if (isAiBusy)
+            if (chatPanel is null) return;
+
+            var lbl = new Label
             {
-                await SpeakAndShowAsync(
-                        "Подождите пожалуйста.",
-                        "Подождите пожалуйста");
-                return;
-            }
+                Text = text,
+                ForeColor = text.StartsWith("Jarvis") ? Color.Cyan : Color.White,
+                Font = new Font("Consolas", 14, FontStyle.Bold),
+                AutoSize = true,
+                Margin = new Padding(0, 0, 0, 50),
+                MaximumSize = new Size(chatPanel.ClientSize.Width - chatPanel.Padding.Left - chatPanel.Padding.Right - 20, 0)
+            };
 
-            try
-            {
-                isAiBusy = true;
-                string cleanedText = commandParser.CleanAiText(text);
-                string answer = await geminiService.AskAsync(cleanedText);
-
-                await SpeakAndShowAsync(answer, answer);
-
-                return;
-            }
-            catch (Exception e)
-            {
-                string userMessage;
-
-                if (e.Message.Contains("quota") || e.Message.Contains("limit"))
-                {
-                    userMessage = "Я исчерпал лимит запросов. Попробуйте позже.";
-                }
-                else
-                {
-                    userMessage = "Произошла ошибка при обращении к серверу.";
-                }
-
-                await SpeakAndShowAsync(userMessage, userMessage);
-            }
-            finally
-            {
-                isAiBusy = false;
-            }
-        }
-
-        private static bool ShouldSendToAi(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
-
-            text = text.Trim().ToLower();
-
-            if (text.Length < 3)
-                return false;
-
-            string[] ignored =
-            [
-                "ага", "да", "нет", "ну", "эм", "мм", "а", "и", "чё", "че"
-            ];
-
-            if (ignored.Contains(text))
-                return false;
-
-            return true;
+            chatPanel.Controls.Add(lbl);
+            chatPanel.ScrollControlIntoView(lbl);
         }
 
         private void SwitchToMainMode()

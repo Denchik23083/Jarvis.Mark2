@@ -5,11 +5,18 @@ namespace Jarvis.Mark2.Infrastructure.Core
     {
         private readonly HashSet<string> listWakeUp = ["при", "привет", "джейв", "джарвис","жарвис","дарвис", "джервис", "джарвис не спишь","привет джарвис"];
         private readonly HashSet<string> listSleep = ["пока", "джарвис спать","спать","спящий режим"];
-        private readonly string muteCommand = "без звука";
-        private readonly string unMuteCommand = "верни звук";
-        private readonly HashSet<string> listGoogle = ["открой гугл", "гугл"];
-        private readonly HashSet<string> listYouTube = ["открой ютуб", "ютуб"];
         private readonly string[] jarvisAliases = ["джейв", "джарвис", "жарвис", "джервис", "дарвис"];
+
+        private readonly Dictionary<SystemCommandType, string[]> systemCommands = new()
+        {
+            { SystemCommandType.Mute, ["без звука"] },
+            { SystemCommandType.UnMute, ["верни звук"] },
+            { SystemCommandType.Clear, ["удали чат", "удалить чат", "очисти чат"] },
+            { SystemCommandType.OpenGoogle, ["открой гугл", "гугл"] },
+            { SystemCommandType.OpenYouTube, ["открой ютуб", "ютуб"] },
+            { SystemCommandType.OpenSteam, ["открой стим", "стим"] },
+            { SystemCommandType.OpenWot, ["открой танки", "танки"] }
+        };
 
         public CommandParseResult Parse(string text, bool isActivated)
         {
@@ -105,20 +112,17 @@ namespace Jarvis.Mark2.Infrastructure.Core
             return text.Trim();
         }
 
-        //AllSystemCommand
         private SystemCommandType GetSystemCommand(string text)
         {
-            if (muteCommand.Equals(text))
-                return SystemCommandType.Mute;
-
-            if (unMuteCommand.Equals(text))
-                return SystemCommandType.UnMute;
-
-            if (listGoogle.Contains(text) || listGoogle.Any(text.Contains))
-                return SystemCommandType.OpenGoogle;
-
-            if (listYouTube.Contains(text) || listYouTube.Any(text.Contains))
-                return SystemCommandType.OpenYouTube;
+            foreach (var command in systemCommands)
+            {
+                if (command.Value.Any(trigger => 
+                    text.Equals(trigger, StringComparison.OrdinalIgnoreCase) ||
+                    text.Contains(trigger, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return command.Key;
+                }
+            }
 
             return SystemCommandType.None;
         }

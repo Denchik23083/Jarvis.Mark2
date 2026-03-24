@@ -5,7 +5,10 @@
         None,
         OpenGoogle,
         OpenYouTube,
+        OpenSteam,
+        OpenWot,
         Mute,
-        UnMute
+        UnMute,
+        Clear
     }
 }
