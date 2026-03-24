@@ -326,7 +326,18 @@ namespace Jarvis.Mark2
             }
             catch (Exception e)
             {
-                AddLine("Jarvis: Ошибка." + e.Message);
+                string userMessage;
+
+                if (e.Message.Contains("quota") || e.Message.Contains("limit"))
+                {
+                    userMessage = "Я исчерпал лимит запросов. Попробуйте позже.";
+                }
+                else
+                {
+                    userMessage = "Произошла ошибка при обращении к серверу.";
+                }
+
+                await SpeakAndShowAsync(userMessage, userMessage);
             }
             finally
             {
